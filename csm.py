@@ -32,18 +32,25 @@ def cli_parser():
                         dest='loglevel',
                         const=logging.DEBUG,
                         default=logging.WARNING)
+    parser.add_argument('--deep-scrub',
+                        help='Ad-hoc operation to deep-scrub all PGs and exit',
+                        action='store_true',
+                        dest='deep_scrub')
     parser.add_argument('--deep-scrub-interval',
                         help='Interval in days since last pg deep-scrub',
                         default=7,
                         type=int,
                         dest='ds_interval')
+    parser.add_argument('--scrub',
+                        help='Ad-hoc operation to scrub all PGs and exit',
+                        action='store_true')
     parser.add_argument('--scrub-interval',
                         help='Interval in days since last pg scrub',
                         default=3,
                         type=int,
                         dest='s_interval')
     parser.add_argument('-s', '--status',
-                        help='Returns status information about PGs',
+                        help='Returns status information about PGs and exit',
                         action='store_true')
     parser.add_argument('-p', '--parallel',
                         help='Maximum number of unhealthy PGs',
@@ -109,10 +116,10 @@ class CephScrubManager():
 
         return pgs, osds
 
-    def deep_scrub(self):
+    def do_scrub(self, type_, delay):
         for pg in json.loads(self.dump())['pg_stats']:
             date_status = self.date_check(pg)
-            if not date_status['deep-scrub']:
+            if not date_status[type_]:
                 # pg has been scrubed in the specified timeframe
                 continue
 
@@ -120,12 +127,14 @@ class CephScrubManager():
                 LOG.info('sleeping 30 seconds')
                 time.sleep(30)
 
-            LOG.warn('Performing deep-scrubbing on PG {}'.format(pg['pgid']))
-            p = subprocess.Popen(["ceph", "pg", "deep-scrub", pg['pgid']],
+            LOG.warn('Performing {} on PG {}'.format(type_, pg['pgid']))
+            p = subprocess.Popen(["ceph", "pg", type_, pg['pgid']],
                                  stdout=subprocess.PIPE,
                                  stderr=DEVNULL)
             LOG.info('{}'.format(p.communicate()[0].decode('UTF-8')))
-            time.sleep(15)
+            time.sleep(delay)
+
+        LOG.warn("All PGs have been {}'d".format(type_))
 
     def status(self):
         ds_count = 0
@@ -172,7 +181,11 @@ def main():
     if config.status:
         return csm.status()
 
-    csm.deep_scrub()
+    if config.deep_scrub:
+        return csm.do_scrub('deep-scrub', 15)
+
+    if config.scrub:
+        return csm.do_scrub('scrub', 1)
 
 
 if __name__ == '__main__':
