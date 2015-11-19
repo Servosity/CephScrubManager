@@ -79,9 +79,12 @@ class CephScrubManager():
         ds_time = datetime.datetime.strptime(pg['last_deep_scrub_stamp'], fmt)
         s_time = datetime.datetime.strptime(pg['last_scrub_stamp'], fmt)
 
-        deep_scrub = ds_time > ds_comp
-        scrub = s_time > s_comp
-        return deep_scrub, scrub
+        status = {
+            'deep-scrub': ds_time < ds_comp,
+            'scrub': s_time < s_comp
+        }
+
+        return status
 
     def dump(self):
         p = subprocess.Popen(["ceph", "pg", "dump", "--format=json"],
@@ -108,8 +111,8 @@ class CephScrubManager():
 
     def deep_scrub(self):
         for pg in json.loads(self.dump())['pg_stats']:
-            deep_scrub, scrub = self.date_check(pg)
-            if deep_scrub:
+            date_status = self.date_check(pg)
+            if not date_status['deep-scrub']:
                 # pg has been scrubed in the specified timeframe
                 continue
 
@@ -131,14 +134,14 @@ class CephScrubManager():
         se_count = 0
 
         for pg in json.loads(self.dump())['pg_stats']:
-            deep_scrub, scrub = self.date_check(pg)
+            date_status = self.date_check(pg)
 
-            if not scrub:
+            if date_status['scrub']:
                 s_count = s_count + 1
                 LOG.info('{} has not been scrubbed since {}'.format(
                     pg['pgid'], pg['last_scrub_stamp']
                 ))
-            if not deep_scrub:
+            if date_status['deep-scrub']:
                 ds_count = ds_count + 1
                 LOG.info('{} has not been deep-scrubbed since {}'.format(
                     pg['pgid'], pg['last_deep_scrub_stamp']
